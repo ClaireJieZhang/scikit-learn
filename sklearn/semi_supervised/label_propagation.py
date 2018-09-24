@@ -217,6 +217,9 @@ class BaseLabelPropagation(six.with_metaclass(ABCMeta, BaseEstimator,
         X : array-like, shape = [n_samples, n_features]
             A {n_samples by n_samples} size matrix will be created from this
 
+        UPDATE 09212018 BY CLAIRE ZHANG
+        y: array_like, shape = [n_samples, 2]
+        
         y : array_like, shape = [n_samples]
             n_labeled_samples (unlabeled points are marked as -1)
             All unlabeled samples will be transductively assigned labels
@@ -225,19 +228,24 @@ class BaseLabelPropagation(six.with_metaclass(ABCMeta, BaseEstimator,
         -------
         self : returns an instance of self.
         """
-        X, y = check_X_y(X, y)
+        #X, y = check_X_y(X, y)
         self.X_ = X
-        check_classification_targets(y)
+        #check_classification_targets(y)
 
         # actual graph construction (implementations should override this)
         graph_matrix = self._build_graph()
 
         # label construction
         # construct a categorical distribution for classification only
-        classes = np.unique(y)
+
+        #CLAIRE ZHANG: Because y is going to be continuous, comment out below line
+        #classes = np.unique(y)
+        classes=np.array([-1, 0, 1])
+        classes=np.unique(classes)
         classes = (classes[classes != -1])
         self.classes_ = classes
-
+        #print (y)
+        #print (classes)
         n_samples, n_classes = len(y), len(classes)
 
         alpha = self.alpha
@@ -246,17 +254,39 @@ class BaseLabelPropagation(six.with_metaclass(ABCMeta, BaseEstimator,
             raise ValueError('alpha=%s is invalid: it must be inside '
                              'the open interval (0, 1)' % alpha)
         y = np.asarray(y)
-        unlabeled = y == -1
+        #unlabeled = y == -1
+        unlabeled=np.logical_or(y[:,0]==-1, y[:,1]==-1)
+        
+        labeled_indices=np.where(np.logical_and(y[:,0]!=-1, y[:,1]!=-1))
+
+        #print ("unlabeled")
+        #print (unlabeled)
+
+        #print ("labeled_indices")
+        #print (labeled_indices)
 
         # initialize distributions
         self.label_distributions_ = np.zeros((n_samples, n_classes))
-        for label in classes:
-            self.label_distributions_[y == label, classes == label] = 1
+        #for label in classes:
+        #    self.label_distributions_[y == label, classes == label] = 1
+        #CLAIRE ZHANG: above line: (classes=[0,1])
+        #if label==0, distributions_[data points whose original labels are 0, and either index 0, or 1 is chosen as column index]
+        #now changed to 2 column
 
+        unlabeled_indices=np.delete(np.arange(n_samples), labeled_indices)
+
+        #copy the probabilities coming from y, by indices, originally nonlabeled points have probabilities 0 for both columns (classes)
+        for ind in labeled_indices:
+            self.label_distributions_[ind]=y[ind]
+        
+        #print ("self.label_distributions_ 1")
+        #print (self.label_distributions_)
+
+        
         y_static = np.copy(self.label_distributions_)
         if self._variant == 'propagation':
             # LabelPropagation
-            y_static[unlabeled] = 0
+            y_static[unlabeled_indices] = 0
         else:
             # LabelSpreading
             y_static *= 1 - alpha
@@ -279,9 +309,12 @@ class BaseLabelPropagation(six.with_metaclass(ABCMeta, BaseEstimator,
                 normalizer = np.sum(
                     self.label_distributions_, axis=1)[:, np.newaxis]
                 self.label_distributions_ /= normalizer
-                self.label_distributions_ = np.where(unlabeled,
-                                                     self.label_distributions_,
-                                                     y_static)
+                self.label_distributions_ = np.where(unlabeled, #unlabeled is a matrix of true and false, true is the index where y==-1 originally
+                                                     self.label_distributions_, #unlabeled index will get probabilities from label_distribution, while
+                                                     y_static)                  #while other indices have probabilities remain - unchanged
+                #print ("in each iter, print distribution")
+                #print (self.label_distributions_)
+                
             else:
                 # clamp
                 self.label_distributions_ = np.multiply(
@@ -292,8 +325,17 @@ class BaseLabelPropagation(six.with_metaclass(ABCMeta, BaseEstimator,
                 category=ConvergenceWarning
             )
             self.n_iter_ += 1
-
+            
+        np.set_printoptions(threshold=np.nan)
+        
+        #print ("distribution")
+        #print (self.label_distributions_)
+        
         normalizer = np.sum(self.label_distributions_, axis=1)[:, np.newaxis]
+        
+        #print ("normalizer")
+        #print (normalizer)
+        
         self.label_distributions_ /= normalizer
 
         # set the transduction item
